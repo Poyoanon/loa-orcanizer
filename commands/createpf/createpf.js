@@ -110,7 +110,7 @@ module.exports = {
       );
       const embed = new EmbedBuilder()
         .setAuthor({
-          name: `${interaction.user.displayName}'s Party Finder`,
+          name: `Party Finder`,
         })
         .setTitle(`${selectedRaid}`)
         .setDescription(
@@ -202,7 +202,6 @@ module.exports = {
         );
       };
 
-      // Should I just cron this lmao
       let timeout = setTimeout(() => {
         message.delete();
       }, 15 * 60_000);
@@ -213,106 +212,115 @@ module.exports = {
       });
 
       buttonCollector.on("collect", async (interaction) => {
-        await interaction.deferUpdate();
+        const username = interaction.user.displayName;
 
-        if (interaction.isButton()) {
-          const username = interaction.user.displayName;
-
-          const newEmbed = new EmbedBuilder()
-            .setAuthor({
-              name: `${interaction.user.displayName}'s Party Finder`,
-            })
-            .setTitle(`${selectedRaid}`)
-            .addFields(
-              {
-                name: "DPS Needed",
-                value: selectedDps ? selectedDps.toString() : "None",
-                inline: true,
-              },
-              {
-                name: "Supports Needed",
-                value: selectedSupport ? selectedSupport.toString() : "None",
-                inline: true,
-              }
-            )
-            .setColor(selectedRaidDetails.color)
-            .setFooter({
-              text: "Party Finder",
-            })
-            .setTimestamp();
-
-          if (interaction.customId === "dps" && selectedDps > 0) {
-            const userIndex = supportUsers.indexOf(username);
-            if (userIndex > -1) {
-              supportUsers.splice(userIndex, 1);
+        if (interaction.customId === "dps") {
+          if (!dpsUsers.includes(username)) {
+            dpsUsers.push(username);
+            selectedDps = Math.max(0, selectedDps - 1);
+            const index = supportUsers.indexOf(username);
+            if (index > -1) {
+              supportUsers.splice(index, 1);
+              selectedSupport++;
             }
-            if (!dpsUsers.includes(username)) {
-              dpsUsers.push(username);
-            }
-            updateButtonStyles();
-
-            newEmbed.setDescription(
-              `__Applied:__\n* ${dpsUsers.join(" (DPS)\n* ")} (DPS)`
-            );
-          } else if (
-            interaction.customId === "support" &&
-            selectedSupport > 0
-          ) {
-            const userIndex = dpsUsers.indexOf(username);
-            if (userIndex > -1) {
-              dpsUsers.splice(userIndex, 1);
-            }
-            if (!supportUsers.includes(username)) {
-              supportUsers.push(username);
-            }
-            updateButtonStyles();
-
-            await message.edit({
-              components: [actionRowControl, actionRowJoin],
-            });
-
-            newEmbed.setDescription(
-              `__Applied:__\n* ${supportUsers.join(" (Support)\n* ")} (Support)`
-            );
           }
-
-          if (interaction.customId === "delete") {
-            clearTimeout(timeout);
-            if (message && !message.deleted) {
-              await message.delete().catch((error) => {
-                console.error("Failed to delete the message:", error);
-              });
-              await interaction.followUp({
-                content: "Party Finder deleted.",
-                ephemeral: true,
-              });
-            } else {
-              await interaction.followUp({
-                content: "The message has already been deleted.",
-                ephemeral: true,
-              });
+        } else if (interaction.customId === "support") {
+          if (!supportUsers.includes(username)) {
+            supportUsers.push(username);
+            selectedSupport = Math.max(0, selectedSupport - 1);
+            const index = dpsUsers.indexOf(username);
+            if (index > -1) {
+              dpsUsers.splice(index, 1);
+              selectedDps++;
             }
-          } else if (interaction.customId === "extend") {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => {
-              if (message && !message.deleted) {
-                message.delete();
-              }
-            }, 10 * 60_000);
+          }
+        } else if (interaction.customId === "remove") {
+          const dpsIndex = dpsUsers.indexOf(username);
+          if (dpsIndex > -1) {
+            dpsUsers.splice(dpsIndex, 1);
+            selectedDps++;
+          }
+          const supportIndex = supportUsers.indexOf(username);
+          if (supportIndex > -1) {
+            supportUsers.splice(supportIndex, 1);
+            selectedSupport++;
+          }
+        }
+
+        updateButtonStyles();
+
+        const dpsList = dpsUsers.map((user) => `* ${user} (DPS)`);
+        const supportList = supportUsers.map((user) => `* ${user} (Support)`);
+        let description = "__Applied:__";
+        if (dpsList.length > 0 || supportList.length > 0) {
+          description +=
+            "\n" + dpsList.join("\n") + "\n" + supportList.join("\n");
+        } else {
+          description += "No applicants yet.";
+        }
+
+        const newEmbed = new EmbedBuilder()
+          .setAuthor({ name: `Party Finder` })
+          .setTitle(`${selectedRaid}`)
+          .setDescription(description)
+          .addFields(
+            {
+              name: "DPS Needed",
+              value: selectedDps.toString(),
+              inline: true,
+            },
+            {
+              name: "Supports Needed",
+              value: selectedSupport.toString(),
+              inline: true,
+            }
+          )
+          .setColor(selectedRaidDetails.color)
+          .setFooter({ text: "Party Finder" })
+          .setTimestamp();
+
+        await interaction.deferUpdate();
+        await message.edit({
+          embeds: [newEmbed],
+          components: [actionRowControl, actionRowJoin],
+        });
+
+        if (interaction.customId === "delete") {
+          clearTimeout(timeout);
+          if (message && !message.deleted) {
+            await message.delete().catch((error) => {
+              console.error("Failed to delete the message:", error);
+            });
             await interaction.followUp({
-              content: "Party Finder extended by 10 minutes.",
+              content: "Party Finder deleted.",
+              ephemeral: true,
+            });
+          } else {
+            await interaction.followUp({
+              content: "The message has already been deleted.",
               ephemeral: true,
             });
           }
-
-          try {
-            await message.edit({ embeds: [newEmbed] });
-          } catch (error) {
-            if (error.code === 10008) {
-              console.error("Party Finder was deleted.");
-            } else {
-              throw error;
+        } else if (interaction.customId === "extend") {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => {
+            if (message && !message.deleted) {
+              message.delete();
             }
+          }, 10 * 60_000);
+          await interaction.followUp({
+            content: "Party Finder extended by 10 minutes.",
+            ephemeral: true,
+          });
+        }
+
+        try {
+          await message.edit({ embeds: [newEmbed] });
+        } catch (error) {
+          if (error.code === 10008) {
+            console.error("Party Finder was deleted.");
+          } else {
+            throw error;
           }
         }
       });
